@@ -7,34 +7,19 @@
 	<script type="text/javascript" src="/index.js"></script>
 </head>
 <body>
+	<h1>FRIENDS</h1>
 	<button type="button" onclick="test()">test</button>
 	<div>
-		<button type='button' onclick='select(1)'>Room 1</button>
-		<button type='button' onclick='block(2)'>block user2</button>
-		<button type='button' onclick='unblock(2)'>unblock user2</button>
-	</div>
-	<div>
-		<button type='button' onclick='select(2)'>Room 2</button>
-		<button type='button' onclick='block(3)'>block user3</button>
-		<button type='button' onclick='unblock(3)'>unblock user3</button>
-	</div>
-	<div>
-		<button type='button' onclick='select(3)'>Room 3</button>
-		<button type='button' onclick='block(4)'>block user4</button>
-		<button type='button' onclick='unblock(4)'>unblock user4</button>
+		<input type="number" id="first">
+		<button type='button' onclick='select()'>Select Room</button>
+		<button type='button' onclick='block()'>block user</button>
+		<button type='button' onclick='unblock()'>unblock user</button>
+		<button type='button' onclick='add_friend()'>add friend</button>
+		<button type='button' onclick='rm_friend()'>remove friend</button>
 	</div>
 	<div>
 		<input type='text' id='message' />
 		<button type='button' onclick='send_dm()'>Send Message</button>
-	</div>
-	<div>
-		<h1>friends</h1>
-		<button type='button' onclick='add_friend("mlefevre")'>add mlefevre</button>
-		<button type='button' onclick='rm_friend("mlefevre")'>remove mlefevre</button>
-	</div>
-	<div>
-		<button type='button' onclick='add_friend("rcammaro")'>add rcammaro</button>
-		<button type='button' onclick='rm_friend("rcammaro")'>remove rcammaro</button>
 	</div>
 	<h1>GROUPS</h1>
 	<div>
@@ -45,18 +30,28 @@
 			<input type="submit" value="Submit">
 		</form>
 	</div>
+	<h2>
+		Owner controls
+	</h2>
 	<div>
-		<button type='button' onclick='add_user_group(2)'>add mlefevre</button>
-		<button type='button' onclick='mute_user_group(2)'>mute mlefevre</button>
-		<button type='button' onclick='rm_user_group(2)'>kick mlefevre</button>
-		<button type='button' onclick='add_user_group(3)'>add mdesalle</button>
-		<button type='button' onclick='add_user_group(4)'>add dbanzizi</button>
-		<button type='button' onclick='add_user_group(5)'>add rcammaro</button>
+		<input type="number" id="second">
+		<button type='button' onclick='add_user_group()'>add user to group</button>
+		<button type='button' onclick='mute_user_group()'>mute user</button>
+		<button type='button' onclick='unmute_user_group()'>unmute user</button>
+		<button type='button' onclick='rm_user_group()'>kick user</button>
 	</div>
 	<div>
+		<input type='text' id='group_message' />
+		<button type='button' onclick='send_group_message()'>Send Message</button>
 	</div>
 	<div>
-		<button type="button" onclick="rm_group(17)"></button>
+		<button type="button" onclick="rm_group()">rm group</button>
 	</div>
+	<h2>
+		Admin controls
+	</h2>
+	<h2>
+		participant controls
+	</h2>
 </body>
 </html>
