@@ -27,11 +27,36 @@
 		<input type='text' id='message' />
 		<button type='button' onclick='send_dm()'>Send Message</button>
 	</div>
-	<table>
-		<tr>
-			<th>name</th>
-			<th>message</th>
-		</tr>
-	</table>
+	<div>
+		<h1>friends</h1>
+		<button type='button' onclick='add_friend("mlefevre")'>add mlefevre</button>
+		<button type='button' onclick='rm_friend("mlefevre")'>remove mlefevre</button>
+	</div>
+	<div>
+		<button type='button' onclick='add_friend("rcammaro")'>add rcammaro</button>
+		<button type='button' onclick='rm_friend("rcammaro")'>remove rcammaro</button>
+	</div>
+	<h1>GROUPS</h1>
+	<div>
+		<form action="javascript:create_group();" method='POST' id="1">
+			name:		<input type="text" name="name" id="name"><br>
+			private:	<input type="checkbox" name="priv" id="priv"><br>
+			password:	<input type="text" name="pass" id="pass"><br>
+			<input type="submit" value="Submit">
+		</form>
+	</div>
+	<div>
+		<button type='button' onclick='add_user_group(2)'>add mlefevre</button>
+		<button type='button' onclick='mute_user_group(2)'>mute mlefevre</button>
+		<button type='button' onclick='rm_user_group(2)'>kick mlefevre</button>
+		<button type='button' onclick='add_user_group(3)'>add mdesalle</button>
+		<button type='button' onclick='add_user_group(4)'>add dbanzizi</button>
+		<button type='button' onclick='add_user_group(5)'>add rcammaro</button>
+	</div>
+	<div>
+	</div>
+	<div>
+		<button type="button" onclick="rm_group(17)"></button>
+	</div>
 </body>
 </html>
