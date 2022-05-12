@@ -142,6 +142,28 @@ function rm_user_group() {
 	xhr.send(JSON.stringify(obj));
 }
 
+function promote_user_group() {
+	id = document.getElementById('second').value;
+	var obj = {
+		value: id
+	}
+	var xhr = new window.XMLHttpRequest();
+	xhr.open('POST', '/promote_user_group', true);
+	xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+	xhr.send(JSON.stringify(obj));
+}
+
+function demote_user_group() {
+	id = document.getElementById('second').value;
+	var obj = {
+		value: id
+	}
+	var xhr = new window.XMLHttpRequest();
+	xhr.open('POST', '/demote_user_group', true);
+	xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+	xhr.send(JSON.stringify(obj));
+}
+
 function rm_group() {
 	id = document.getElementById('second').value;
 	var obj = {

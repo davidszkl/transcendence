@@ -65,7 +65,7 @@ app.post("/create_group", async (req, res) => {
 })
 
 app.post("/add_user_group", async (req, res) => {
-	await add_user_group(me.selected_room, req.body.value);
+	await add_user_group(me, me.selected_room, req.body.value);
 	me.show();
 	res.status(200).send();
 })
@@ -77,19 +77,31 @@ app.post("/group_message", async (req, res) => {
 })
 
 app.post("/mute_user_group", async (req, res) => {
-	await mute_user(me, me.selected_room, req.body.value);
+	await mute_user(me, me.selected_room, req.body.value, 2);
 	me.show();
 	res.status(200).send();
 })
 
 app.post("/unmute_user_group", async (req, res) => {
-	await mute_user(me, me.selected_room, req.body.value);
+	await unmute_user(me, me.selected_room, req.body.value);
 	me.show();
 	res.status(200).send();
 })
 
 app.post("/rm_user_group", async (req, res) => {
-	await add_user_group(me.selected_room, req.body.value);
+	await rm_user_group(me, me.selected_room, req.body.value, 2);
+	me.show();
+	res.status(200).send();
+})
+
+app.post("/promote_user_group", async (req, res) => {
+	await add_admin_group(me, me.selected_room, req.body.value);
+	me.show();
+	res.status(200).send();
+})
+
+app.post("/demote_user_group", async (req, res) => {
+	await rm_admin_group(me, me.selected_room, req.body.value);
 	me.show();
 	res.status(200).send();
 })
@@ -210,7 +222,6 @@ async function get_convs(me) {
 		tmp.id		= room_id;
 		tmp.name	= room_row.name;
 		tmp.status	= my_status.rows[0].status;
-		console.log("COUNT = " + part_q.rowCount);
 		for (n = 0; n < part_q.rowCount; n++)				//get all participants of a given conversation
 			tmp.participants.push(part_q.rows[n].user_id);
 		me.conversations.push(tmp);
@@ -226,13 +237,12 @@ async function get_blocked(me) {
 }
 
 async function get_message(me) {
-	// console.log(messages);
 	let last_time;
 	if (me.messages.length > 0)
 	{
 		last_time = new Date(me.messages[0].timestamp).getTime() / 1000;
 		console.log("last_time = " + last_time);
-		my_query = await pool.query(`SELECT id, user_id, message, timestamp FROM message WHERE room_id = ${me.selected_room} AND timestamp > to_timestamp(${last_time}) ORDER BY timestamp DESC`);
+		my_query = await pool.query(`SELECT id, user_id, message, timestamp FROM message WHERE room_id = ${me.selected_room} AND timestamp > to_timestamp(${last_time}) AND user_id NOT IN (SELECT blocked_id FROM blocked WHERE user_id= ${me.id}) ORDER BY timestamp DESC`);
 		for ( i = 0; i < my_query.rowCount; i++)
 			console.log(my_query.rows[i]);
 	}
@@ -297,7 +307,15 @@ async function unblock(me, block_id) {
 }
 
 async function available_friends(me) {
-	my_query = await pool.query(`select id from chat_user where id not in (select user_id from participants where room_id in (select room_id from participants where user_id =${me.id} AND room_id not in (select id from room where not owner=0))) AND NOT id IN (SELECT blocked_id FROM blocked WHERE user_id=${me.id} ) AND NOT id=${me.id}`);
+	my_query = await pool.query(`SELECT id from chat_user where id not in (select user_id from participants where room_id in (select room_id from participants where user_id =${me.id} AND room_id not in (select id from room where not owner=0))) AND NOT id IN (SELECT blocked_id FROM blocked WHERE user_id=${me.id} ) AND NOT id=${me.id}`);
+	available = [];
+	for (i = 0; i < my_query.rowCount; i++)
+		available.push(my_query.rows[0].id);
+	return available;
+}
+
+async function available_groups(me) {
+	my_query = await pool.query(`SELECT id FROM room WHERE owner > 0 AND id NOT IN (SELECT room_id FROM participants WHERE user_id= ${me.id}) AND private=false`);
 	available = [];
 	for (i = 0; i < my_query.rowCount; i++)
 		available.push(my_query.rows[0].id);
@@ -316,7 +334,7 @@ async function add_friend(me, friend_id) {
 	await pool.query(`INSERT INTO participants (user_id, room_id) VALUES(${me.id}, ${new_room_id})`);
 	await pool.query(`INSERT INTO participants (user_id, room_id) VALUES(${friend_id}, ${new_room_id})`);
 	await on_select(me, new_room_id)
-	await refresh(me);
+	//refresh is in the calling function ( add_conv() )
 }
 
 async function rm_friend(me, friend_id) {
@@ -341,7 +359,19 @@ async function create_group(me, group) {
 	tmp = await pool.query(`SELECT id FROM room WHERE name='${group.name}'`);
 	room_id = tmp.rows[0].id;
 	for (i = 0; i < group.participants.length; i++)
-		await pool.query(`INSERT INTO participants(user_id, room_id) VALUES(${obj.participants[i]}, ${room_id})`);
+		await pool.query(`INSERT INTO participants(user_id, room_id) VALUES(${group.participants[i]}, ${room_id})`);
+	await refresh(me);
+}
+
+async function set_password(me, room_id, password) {
+	if (await get_role(me.id, room_id) == OWNER)
+		await pool.query(`UPDATE room SET password=crypt('${password}', gen_salt('bf')) WHERE id=${room_id}`);
+	await refresh(me);
+}
+
+async function set_private(me, room_id, cond) { //condition true = private false = public
+	if (await get_role(me.id, room_id) == OWNER)
+		await pool.query(`UPDATE room SET private=${cond} WHERE id=${room_id}`);
 	await refresh(me);
 }
 
@@ -355,42 +385,63 @@ async function rm_group(me, room_id) {
 	await refresh(me);
 }
 
-async function add_user_group(room_id, user_id) {
-	await pool.query(`INSERT INTO participants(user_id, room_id) VALUES(${user_id}, ${room_id})`);
+async function add_user_group(me, room_id, user_id) {
+	tmp = await pool.query(`SELECT role, banned_id FROM banned WHERE room_id=${room_id} AND banned_id=${user_id}`);
+	if (!tmp.rowCount)
+	{
+		await pool.query(`INSERT INTO participants(user_id, room_id) VALUES(${user_id}, ${room_id})`);
+		return await refresh(me);
+	}
+	role1 = await get_role(me.id, room_id);
+	role2 = tmp.rows[0].role;
+	if (role1 >= role2 /* && role1 >= ADMIN */)  //option for who can invite into group
+		await pool.query(`INSERT INTO participants(user_id, room_id) VALUES(${user_id}, ${room_id})`);
+	await refresh(me);
 }
 
-//drop-down menu to chose length of ban, either fixed or input but then check for negatives, 0 means just kick from group
+//needs a drop-down menu to chose length of ban, either fixed or input but then check for negatives, 0 means just kick from group
 async function rm_user_group(me, room_id, user_id, unban_hours) {
 	role1 = await get_role(me.id, room_id);
 	role2 = await get_role(user_id, room_id);
 	if (role1 < ADMIN || role1 <= role2)
 		return;
-	let unban_date;
+
+	let unban_date = new Date;
 	if (unban_hours)
-		unban_date = new Date().setHours(unban_date.getHours() + unban_hours);
+		unban_date.setHours(unban_date.getHours() + unban_hours);
 	else
 		unban_date = "NOW()";
+
+	await pool.query(`DELETE FROM message WHERE user_id=${user_id} AND room_id=${room_id}`);	//delete messages (option)
 	await pool.query(`DELETE FROM participants WHERE user_id=${user_id} AND room_id=${room_id}`);
 	await pool.query(`DELETE FROM banned WHERE banned_id=${user_id} AND room_id=${room_id} AND mute=true`);
-	await pool.query(`INSERT INTO banned (user_id, banned_id, room_id, unban, mute) VALUES(${me.id}, ${user_id}, ${room_id}, ${unban_date}, false)`)
+	await pool.query(`INSERT INTO banned (user_id, banned_id, room_id, unban, mute, role) VALUES(${me.id}, ${user_id}, ${room_id}, to_timestamp(${unban_date.getTime() / 1000}), false, ${role1})`);
+	await refresh(me);
 }
 
 async function add_admin_group(me, room_id, user_id) {
 	if (await get_role(me.id, room_id) == OWNER)
 		await pool.query(`INSERT INTO admins(user_id, room_id) VALUES(${user_id}, ${room_id})`);
+	await refresh(me);
 }
 
 async function rm_admin_group(me, room_id, user_id) {
 	if (await get_role(me.id, room_id) == OWNER)
 		await pool.query(`DELETE FROM admins WHERE user_id=${user_id} AND room_id=${room_id}`);
+	await refresh(me);
 }
 
-async function mute_user(me, room_id, user_id) {
+async function mute_user(me, room_id, user_id, unban_hours) {
 	role1 = await get_role(me.id, room_id);
 	role2 = await get_role(user_id, room_id);
 	if (role1 < ADMIN || role1 <= role2)
 		return;
-	await pool.query(`INSERT INTO banned (user_id, banned_id, room_id, unban, mute) VALUES(${me.id}, ${user_id}, ${room_id}, ${unban}, true)`);
+	
+	unban_date = new Date;
+	unban_date.setHours(unban_date.getHours() + unban_hours);
+
+	await pool.query(`INSERT INTO banned (user_id, banned_id, room_id, unban, mute, role) VALUES(${me.id}, ${user_id}, ${room_id}, to_timestamp(${unban_date.getTime() / 1000}), true, ${role1})`);
+	await refresh(me);
 }
 
 async function unmute_user(me, room_id, user_id) {
@@ -399,6 +450,7 @@ async function unmute_user(me, room_id, user_id) {
 	if (role1 < ADMIN || role1 <= role2)
 		return;
 	await pool.query(`DELETE FROM banned WHERE banned_id= ${user_id} AND room_id= ${room_id}`);
+	await refresh(me);
 }
 
 async function get_role(id, room_id) {
@@ -415,25 +467,21 @@ async function get_role(id, room_id) {
 }
 
 async function join_group(me, name) {
-	tmp = await pool.query(`SELECT id, private, password FROM room WHERE name=${name}`);
+	tmp = await pool.query(`SELECT id, password FROM room WHERE name=${name} AND private=false`);
+	if (!tmp.rowCount)
+		return console.log('cant join private group');
 	room = tmp.rows[0];
 	if (room.password.length)
 		//provide password and compare SELECT crypt('provided_password', 'bf') with SELECT password FROM room WHERE id=${room.id};
 	await pool.query(`INSERT INTO participants(user_id, room_id) VALUES(${me.id}, ${room.id})`);
-	me.selected_room = room.id;
-}
-
-async function add_conv(me, name)
-{
-	tmp = await pool.query(`SELECT id, owner FROM room WHERE name=${name}`);
-	room = tmp.rows[0];
-	if (!room.owner)       // direct message
-		await add_friend(me, name);
-	else                   // group chat
-		await join_group(me, name);
+	on_select(me, room.id);
 }
 
 on_connect(me);
 //TO CHECK WITH THE OTHER DAVID
 //1. what to do with private groups
 //2. display 0 conversations
+
+//OPTIONS
+//1. Keep or Erase messages of a banned person in group (in rm_user_group)
+//2. Who can invite into group ? (in add_user_group)1
