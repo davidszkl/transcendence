@@ -164,6 +164,17 @@ function demote_user_group() {
 	xhr.send(JSON.stringify(obj));
 }
 
+function leave_group() {
+	id = document.getElementById('second').value;
+	var obj = {
+		value: id
+	}
+	var xhr = new window.XMLHttpRequest();
+	xhr.open('POST', '/leave_group', true);
+	xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+	xhr.send(JSON.stringify(obj));
+}
+
 function rm_group() {
 	id = document.getElementById('second').value;
 	var obj = {

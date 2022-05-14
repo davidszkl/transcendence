@@ -15,7 +15,7 @@ app.get("/", (req, res) => {
 });
 
 app.post("/select", async (req, res) => {
-	await on_select(me, req.body.value);
+	await on_select(me, req.body.value, true);
 	me.show();
 	res.status(200).send();
 })
@@ -107,6 +107,13 @@ app.post("/demote_user_group", async (req, res) => {
 	res.status(200).send();
 })
 
+app.post("/leave_group", async (req, res) => {
+	console.log(req.body);
+	await leave_group(me, req.body.value);
+	me.show();
+	res.status(200).send();
+})
+
 app.post("/rm_group", async (req, res) => {
 	console.log(req.body);
 	await rm_group(me, req.body.value);
@@ -191,7 +198,7 @@ const me = new Session();
 //FUNCTIONS
 
 async function test(me) {
-	on_select(me, 14);
+	on_select(me, 14, true);
 	console.log("select 1 "+ me.selected_room);
 	me.show();
 	console.log("select 2 "+ me.selected_room);
@@ -202,10 +209,11 @@ async function test(me) {
 	me.show();
 }
 
-async function on_select(me, id) {
+async function on_select(me, id, msg) {
 	me.selected_room = id;
 	me.messages = [];
-	await get_message(me);
+	if (msg)
+		await get_message(me);
 }
 
 async function get_convs(me) {
@@ -227,7 +235,6 @@ async function get_convs(me) {
 		for (n = 0; n < part_q.rowCount; n++)				//get all participants of a given conversation
 			tmp.participants.push(part_q.rows[n].user_id);
 		me.conversations.push(tmp);
-		//console.log('participants in room ' + my_query.rows[i]["id"] + " " + tmp.participants);
 	}
 }
 
@@ -244,10 +251,7 @@ async function get_message(me) {
 	if (me.messages.length > 0)
 	{
 		last_time = new Date(me.messages[0].timestamp).getTime() / 1000;
-		console.log("last_time = " + last_time);
 		my_query = await pool.query(`SELECT id, user_id, message, timestamp FROM message WHERE room_id = ${me.selected_room} AND timestamp > to_timestamp(${last_time}) AND user_id NOT IN (SELECT blocked_id FROM blocked WHERE user_id= ${me.id}) ORDER BY timestamp DESC`);
-		for ( i = 0; i < my_query.rowCount; i++)
-			console.log(my_query.rows[i]);
 	}
 	else
 		my_query = await pool.query(`SELECT id, user_id, message, timestamp FROM message WHERE room_id = ${me.selected_room} AND user_id NOT IN (SELECT blocked_id FROM blocked WHERE user_id= ${me.id}) ORDER BY timestamp DESC`);
@@ -260,20 +264,12 @@ async function on_connect(me) {
 	if (my_query.rowCount === 1)
 		me.id = my_query.rows[0].id;
 	pool.query(`UPDATE chat_user SET status=true WHERE id=${me.id}`);
-	//await get_blocked(me);
 	await get_convs(me);
-	if (me.conversations.length)
-		me.selected_room = me.conversations[0].id;
-	await get_message(me);
-	//await test(me);
+	await on_select(me, me.conversations.length ? me.conversations[0].id : 0, true);
 }
 
 async function refresh(me) {
-	//console.log('blocked');
-	await get_blocked(me);
-	//console.log('convs');
 	await get_convs(me);
-	//console.log('message');
 	await get_message(me);
 }
 
@@ -299,13 +295,16 @@ async function send_group_msg(me, message) {
 
 async function block(me, block_id) {
 	await pool.query(`INSERT INTO blocked(user_id, blocked_id) VALUES(${me.id}, ${block_id})`);
-	await refresh(me);
-	await on_select(me, me.conversations.length ? me.conversations[0].id : 0); //if you have any conversation left after you block current conversation go to first one, else show no conv
+	let tmp = await pool.query(`SELECT room_id FROM participants WHERE room_id in (SELECT room_id FROM participants WHERE user_id = ${friend_id}) AND user_id =${me.id} AND room_id NOT IN (SELECT id FROM room WHERE NOT owner=0)`);
+	if (tmp.rowCount > 0 && me.selected_room == tmp.rows[0].room_id)
+		await on_select(me, me.conversations.length ? me.conversations[0].id : 0, false);
 	await refresh(me);
 }
 
 async function unblock(me, block_id) {
 	await pool.query(`DELETE FROM blocked WHERE blocked_id=${block_id} and user_id=${me.id}`);
+	let tmp = await pool.query(`SELECT room_id FROM participants WHERE room_id in (SELECT room_id FROM participants WHERE user_id = ${friend_id}) AND user_id =${me.id} AND room_id NOT IN (SELECT id FROM room WHERE NOT owner=0)`);
+	await on_select(tmp.rows[0].room_id, false);
 	await refresh(me);
 }
 
@@ -338,7 +337,7 @@ async function add_friend(me, friend_id) {
 	let new_room_id	= new_room.rows[0].id;
 	await pool.query(`INSERT INTO participants (user_id, room_id) VALUES(${me.id}, ${new_room_id})`);
 	await pool.query(`INSERT INTO participants (user_id, room_id) VALUES(${friend_id}, ${new_room_id})`);
-	await on_select(me, new_room_id)
+	await on_select(me, new_room_id, false)
 	await refresh(me);
 }
 
@@ -350,7 +349,7 @@ async function rm_friend(me, friend_id) {
 	await pool.query(`DELETE FROM message WHERE room_id= ${friend_room}`);
 	await pool.query(`DELETE FROM participants WHERE room_id = ${friend_room}`);
 	await pool.query(`DELETE FROM room WHERE id= ${friend_room}`);
-	await on_select(me, me.conversations.length ? me.conversations[0].id : 0);
+	await on_select(me, me.conversations.length ? me.conversations[0].id : 0, false);
 	await refresh(me);
 }
 
@@ -363,12 +362,10 @@ async function create_group(me, group) {
 	}
 	let tmp = await pool.query(`SELECT id FROM room WHERE name='${group.name}'`);
 	let room_id = tmp.rows[0].id;
-	console.log("CREATE_GROUP");
-	console.log(group.participants.length);
 	for (i = 0; i < group.participants.length; i++)
 		await pool.query(`INSERT INTO participants(user_id, room_id) VALUES(${group.participants[i]}, ${room_id})`);
 	tmp = await pool.query(`SELECT id FROM room WHERE name='${group.name}'`);
-	await on_select(me, tmp.rows[0].id);
+	await on_select(me, tmp.rows[0].id), false;
 	await refresh(me);
 }
 
@@ -384,9 +381,15 @@ async function set_private(me, room_id, cond) { //condition true = private false
 	await refresh(me);
 }
 
+async function set_owner(me, room_id, user_id) {
+	if (await get_role(me.id, room_id) != OWNER)
+		return;
+	await pool.query(`UPDATE room SET owner=${user_id} WHERE id=${room_id}`);
+	await pool.query(`INSERT INTO admins(user_id, room_id) VALUES(${me.id, room_id})`);
+	await pool.query(`DELETE FROM admins WHERE user_id=${user_id} AND room_id=${room_id}`);
+}
+
 async function rm_group(me, room_id) {
-	console.log(me.id);
-	console.log(room_id);
 	if (await get_role(me.id, room_id) != OWNER)
 		return;
 	await pool.query(`DELETE FROM message WHERE room_id=${room_id}`);
@@ -407,8 +410,6 @@ async function add_user_group(me, room_id, user_id) {
 	}
 	let role1 = await get_role(me.id, room_id);
 	let role2 = tmp.rows[0].role;
-	console.log(`ROLE1 = ${role1}`);
-	console.log(`ROLE2 = ${role2}`);
 	if (role1 >= role2 /* && role1 >= ADMIN */)  //option for who can invite into group
 		await pool.query(`INSERT INTO participants(user_id, room_id) VALUES(${user_id}, ${room_id})`);
 	await refresh(me);
@@ -469,18 +470,21 @@ async function unmute_user(me, room_id, user_id) {
 }
 
 async function get_role(id, room_id) {
-	console.log('ERROR');
-	console.log(id);
-	console.log(room_id);
 	let tmp = await pool.query(`SELECT owner FROM room WHERE id=${room_id}`);
 	if (tmp.rows[0].owner == id)
 		return OWNER;
 	tmp = await pool.query(`SELECT user_id FROM admins WHERE room_id=${room_id}`);
-	if (tmp.rows.includes(id))
-		return ADMIN;
+	{
+		for (let i = 0; i < tmp.rowCount; i++)
+			if (tmp.rows[i].user_id == id)
+				return ADMIN;
+	}
 	tmp = await pool.query(`SELECT user_id FROM participants WHERE room_id=${room_id}`);
-	if (tmp.rows.includes(id))
-		return PARTICIPANT;
+	{
+		for (let i = 0; i < tmp.rowCount; i++)
+			if (tmp.rows[i].user_id == id)
+				return PARTICIPANT;
+	}
 	return -1;
 }
 
@@ -492,10 +496,47 @@ async function join_group(me, name) {
 	if (room.password.length)
 		//provide password and compare SELECT crypt('provided_password', 'real_password') with SELECT password FROM room WHERE id=${room.id};
 	await pool.query(`INSERT INTO participants(user_id, room_id) VALUES(${me.id}, ${room.id})`);
-	on_select(me, room.id);
+	await on_select(me, room.id, false);
+	await refresh(me);
+}
+
+async function leave_group(me, room_id) {
+	let participants = [];
+	for (let i = 0; i < me.conversations.length; i++)
+		if (me.conversations[i].id == room_id)
+			for (let j = 0; j < me.conversations[i].participants.length; j++)
+				if (me.conversations[i].participants[j] != me.id)
+					participants.push(me.conversations[i].participants[j]);
+	if (participants.length == 1)	//last person in group
+	{
+		await pool.query(`DELETE FROM admins		WHERE room_id =	${room_id}`);
+		await pool.query(`DELETE FROM banned		WHERE room_id =	${room_id}`);
+		await pool.query(`DELETE FROM participants	WHERE room_id =	${room_id}`);
+		await pool.query(`DELETE FROM message		WHERE room_id =	${room_id}`);
+		await pool.query(`DELETE FROM room			WHERE id =		${room_id}`);
+		await on_select(me, me.conversations.length ? me.conversations[0].id : 0, false);
+		return await refresh(me);
+	}
+	for (let i = 0; i < participants.length; i++)	//first admin in the list becomes owner
+	{
+		if (await get_role(participants[i], room_id) == ADMIN)
+		{
+			await pool.query(`UPDATE room SET owner=${participants[i]} WHERE id=${room_id}`);
+			await pool.query(`DELETE FROM admins WHERE user_id=${participants[i]} AND room_id=${room_id}`);
+			await pool.query(`DELETE FROM participants WHERE user_id=${me.id} AND room_id=${room_id}`);
+			await on_select(me, me.conversations.length ? me.conversations[0].id : 0, false);
+			return await refresh(me);
+		}
+	}
+	//first guy in the list becomes owner
+	await pool.query(`UPDATE room SET owner=${participants[0]} WHERE id=${room_id}`);
+	await pool.query(`DELETE FROM participants WHERE user_id=${me.id} AND room_id=${room_id}`);
+	await on_select(me, me.conversations.length ? me.conversations[0].id : 0, false);
+	return await refresh(me);
 }
 
 on_connect(me);
+//on_select(24);
 //TO CHECK WITH THE OTHER DAVID
 //1. what to do with private groups
 //2. display 0 conversations
