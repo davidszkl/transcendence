@@ -517,6 +517,12 @@ async function leave_group(me, room_id) {
 		await on_select(me, me.conversations.length ? me.conversations[0].id : 0, false);
 		return await refresh(me);
 	}
+	if (await get_role(me, room_id) != OWNER)
+	{
+		await pool.query(`DELETE FROM participants WHERE user_id=${me.id} AND room_id=${room_id}`);
+		await on_select(me, me.conversations.length ? me.conversations[0].id : 0, false);
+		return await refresh(me);		
+	}
 	for (let i = 0; i < participants.length; i++)	//first admin in the list becomes owner
 	{
 		if (await get_role(participants[i], room_id) == ADMIN)
